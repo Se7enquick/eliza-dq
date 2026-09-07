@@ -363,17 +363,29 @@ eliza check --config orders --format json
 
 ```python
 from eliza import check
-from eliza.alert import send_slack
+from eliza.alert import send_slack, send_webhook
 from eliza.report import generate_pdf
 
 result = check(config="orders")
 
-# Slack message + PDF attachment
-send_slack(result, token="xoxb-...", channel="C...", pdf=True, name="orders")
+# Slack bot token — choose any channel, attach PDF reports
+send_slack(
+    result,
+    token="xoxb-...",
+    channel="C0ALERTS",      # send to #alerts
+    pdf=True,                 # attach PDF report
+    name="orders",
+)
 
-# PDF report with charts (donut, failure bars, sample tables)
+# Send to a different channel for a different team
+send_slack(result, token="xoxb-...", channel="C0DATA_ENG")
+
+# PDF report (donut chart, failure bars, sample tables)
 generate_pdf(result, name="orders")
 # -> eliza_orders_2026-09-07.pdf
+
+# Generic webhook (Discord, Teams, PagerDuty, custom)
+send_webhook(result, url="https://your-webhook-url/...")
 ```
 
 ```bash
@@ -458,7 +470,7 @@ def dq_flow():
     result = check(config="orders")
 
     if not result.passed():
-        send_slack(result, webhook="https://hooks.slack.com/services/...")
+        send_slack(result, token="xoxb-...", channel="C...", pdf=True, name="orders")
 
     result.raise_on_fail()
 ```

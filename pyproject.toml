@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "eliza-dq"
+version = "0.1.3"
+description = "Data quality engine for Polars, SQL, and any DataFrame"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Vladislav Koval", email = "koval.vladislavv@gmail.com" },
+]
+keywords = ["data-quality", "polars", "validation", "data-engineering", "iceberg", "delta-lake"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+dependencies = [
+    "polars>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Warehouse connectors
+bigquery = ["google-cloud-bigquery>=3.0"]
+athena = ["pyathena>=3.0"]
+snowflake = ["snowflake-connector-python>=3.0"]
+clickhouse = ["clickhouse-connect>=0.7"]
+postgres = ["psycopg2-binary>=2.9"]
+mysql = ["pymysql>=1.1"]
+databricks = ["databricks-sql-connector>=3.0"]
+redshift = ["redshift-connector>=2.0"]
+# Data formats
+connectorx = ["connectorx>=0.3"]
+iceberg = ["pyiceberg>=0.5"]
+delta = ["deltalake>=0.15"]
+# Extras
+cli = ["rich>=13.0"]
+report = ["fpdf2>=2.7"]
+all = [
+    "google-cloud-bigquery>=3.0",
+    "pyathena>=3.0",
+    "connectorx>=0.3",
+    "rich>=13.0",
+    "fpdf2>=2.7",
+]
+test = [
+    "pytest>=8.0",
+    "pandas>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pandas>=2.0",
+    "rich>=13.0",
+    "fpdf2>=2.7",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "pre-commit>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Se7enquick/eliza"
+Repository = "https://github.com/Se7enquick/eliza"
+Issues = "https://github.com/Se7enquick/eliza/issues"
+
+[project.scripts]
+eliza = "eliza.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eliza"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

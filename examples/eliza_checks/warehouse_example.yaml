@@ -1,0 +1,26 @@
+connection:
+  type: bigquery
+  project: my-project-123
+
+table: my-project-123.analytics.orders
+
+filter: "created_at >= '2024-01-01'"
+
+samples:
+  limit: 20
+
+checks:
+  - column: order_id
+    check: not_null
+  - column: order_id
+    check: unique
+  - column: amount
+    check: not_negative
+  - column: email
+    check: not_missing
+    missing_values: ["", "N/A", "null"]
+  - column: updated_at
+    check: freshness
+    max_age: 24h
+  - check: row_count
+    min: 1000

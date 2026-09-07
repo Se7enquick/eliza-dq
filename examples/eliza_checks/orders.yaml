@@ -1,0 +1,24 @@
+source: data/orders.parquet
+
+samples:
+  limit: 10
+
+checks:
+  - column: order_id
+    check: not_null
+  - column: order_id
+    check: unique
+  - column: amount
+    check: not_null
+  - column: amount
+    check: not_negative
+  - column: amount
+    check: between
+    min: 0
+    max: 100000
+  - column: email
+    check: is_email
+    on_failure: warn
+  - column: status
+    check: in_set
+    values: ["pending", "shipped", "delivered", "cancelled"]

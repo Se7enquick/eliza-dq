@@ -85,7 +85,7 @@ AWS Athena, Iceberg tables, 8 not_null checks per table, `pyathena` connector.
 
 <sub>* Soda Core OSS does not return failed row samples. `DefaultSampler` is a Cloud-only feature (paid). Eliza returns actual failed rows via `SELECT ... WHERE ... LIMIT N`.</sub>
 
-> Eliza batches all inline checks into one `SELECT` and runs sample queries in parallel. Soda runs all queries sequentially. Eliza with 10 sample rows is faster than Soda without any samples on every scale tested.
+> **Why this matters for cost:** Eliza batches all inline checks into one `SELECT` (one table scan) and uses `LIMIT N` for samples. Soda runs queries sequentially (multiple scans) and fetches all failing rows without LIMIT. On pay-per-scan warehouses like BigQuery (per-byte) or Soda Cloud (per-SPU), fewer scans = lower cost. Eliza with 10 sample rows is faster than Soda without any samples on every scale tested.
 
 ## Eliza vs Competitors
 

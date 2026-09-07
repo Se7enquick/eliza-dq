@@ -15,65 +15,58 @@
 
 ---
 
-Eliza DQ validates DataFrames and warehouse tables at any scale. It streams data through Polars LazyFrames (constant memory, no matter the dataset size), pushes checks to warehouses with parallel SQL queries, and collects failed row samples instantly via `LIMIT N`. No full materialization, no OOM, no waiting.
+Eliza DQ runs data quality checks on warehouses and DataFrames. It pushes checks to BigQuery, Athena, Snowflake, and 5 other warehouses with parallel SQL queries, batches everything into a single table scan, and gives you failed row samples via `LIMIT N` (not by fetching all failures into memory). For local data it uses Polars streaming - constant memory, 259M rows from disk in under 2 seconds.
 
-**Two lines to your first check:**
+**Drop-in Soda replacement with faster queries and free failed row samples:**
+
+```yaml
+# eliza_checks/orders.yaml
+connection:
+  type: bigquery
+  project: my-project-123
+
+table: my-project-123.analytics.orders
+
+checks:
+  - column: order_id
+    check: not_null
+  - column: amount
+    check: not_negative
+  - column: updated_at
+    check: freshness
+    max_age: 24h
+```
 
 ```bash
-pip install eliza-dq
+pip install eliza-dq[bigquery]
+eliza check --config orders
+# 2 passed, 0 warnings, 1 failed (50,000,000 rows, 8.2s)
 ```
+
+**Works with DataFrames too:**
 
 ```python
 from eliza import check
 
-result = check("data.parquet", checks={
+result = check(df, checks={
     "order_id": ["not_null", "unique"],
     "amount":   ["not_null", "not_negative"],
-    "email":    ["is_email"],
 })
-print(result.summary())
-# 3 passed, 0 warnings, 2 failed (1,000,000 rows, 3ms)
+result.raise_on_fail()
 ```
 
-**What you get out of the box:**
+**What you get:**
 
-- **17 built-in checks** with zero configuration (not_null, unique, regex, is_email, freshness, schema, FK reference, and more)
-- **8 warehouse connectors** with one-line YAML setup (BigQuery, Athena, Snowflake, Postgres, ClickHouse, MySQL, Databricks, Redshift)
-- **3 interfaces** to fit your workflow (inline dict for notebooks, YAML config for production, CLI for CI/CD)
-- **Slack alerts with PDF reports** including donut charts, failure distribution bars, and sample tables
-- **Auto-learn** checks from your data with `eliza learn data.parquet`
+- **8 warehouse connectors** - BigQuery, Athena, Snowflake, Postgres, ClickHouse, MySQL, Databricks, Redshift. Parallel SQL, single table scan, `LIMIT N` samples
+- **17 built-in checks** - not_null, unique, regex, is_email, freshness, schema, FK reference, and more
+- **Polars streaming engine** - validates 259M rows from disk in 1.9s with constant memory
+- **3 interfaces** - YAML config for production, inline dict for notebooks, CLI for CI/CD
+- **Slack alerts with PDF reports** - donut charts, failure distribution, sample tables
 - **2 core dependencies** (polars + pyyaml). No numpy. No pandas. No bloat.
 
 ## Benchmarks
 
-NYC Yellow Taxi dataset (Parquet). 5 identical checks. Warmup + 3 runs, min time. Apple M-series, Python 3.13.
-
-### DataFrame Engine (in-memory)
-
-Pre-loaded Polars DataFrame - pure check speed, no I/O.
-
-| Rows | Eliza | Cuallee | Pandera | GX |
-|------|-------|---------|---------|-----|
-| **3M** | **2.3ms** | 7.1ms | 11.4ms | 1,151ms |
-| **10M** | **4.4ms** | 11.5ms | 15.0ms | 1,975ms |
-| **41M** | **15ms** | 36ms | 43ms | 8,066ms |
-| **126M** | **50ms** | 103ms | 130ms | 17,802ms |
-
-<sub>GX requires pandas - times include check execution only (pandas conversion adds 1-4s extra). Polars-native libraries (Eliza, Cuallee, Pandera) tested on Polars DataFrames directly.</sub>
-
-### File Streaming (from disk)
-
-Total wall time including file I/O - realistic workload (e.g. S3 to Lambda, local parquet files).
-
-| Rows | Eliza | Cuallee | Pandera | GX |
-|------|-------|---------|---------|-----|
-| **41M** (12 files) | **699ms** | 901ms | 966ms | 9,122ms |
-| **126M** (24 files) | **1.3s** | 4.1s | 4.2s | 48.8s |
-| **259M** (72 files) | **1.9s** | 11.7s | 12.5s | 201s |
-
-> Eliza streams from disk via Polars LazyFrames. Data flows through in chunks without loading the full dataset into memory. Competitors must read all files into a single in-memory DataFrame before running checks. At 259M rows, that means 7.6+ GB of RAM just to hold the data.
-
-### SQL Pushdown Engine
+### SQL Pushdown (Eliza vs Soda)
 
 AWS Athena, Iceberg tables, 8 not_null checks per table, `pyathena` connector.
 
@@ -86,6 +79,29 @@ AWS Athena, Iceberg tables, 8 not_null checks per table, `pyathena` connector.
 <sub>* Soda Core OSS does not return failed row samples. `DefaultSampler` is a Cloud-only feature (paid). Eliza returns actual failed rows via `SELECT ... WHERE ... LIMIT N`.</sub>
 
 > **Why this matters for cost:** Eliza batches all inline checks into one `SELECT` (one table scan) and uses `LIMIT N` for samples. Soda runs queries sequentially (multiple scans) and fetches all failing rows without LIMIT. On pay-per-scan warehouses like BigQuery (per-byte) or Soda Cloud (per-SPU), fewer scans = lower cost. Eliza with 10 sample rows is faster than Soda without any samples on every scale tested.
+
+### DataFrame Engine
+
+NYC Yellow Taxi (Parquet). 5 identical checks. Warmup + 3 runs, min time. Apple M-series, Python 3.13.
+
+**In-memory** (pre-loaded Polars DataFrame):
+
+| Rows | Eliza | Cuallee | Pandera | GX |
+|------|-------|---------|---------|-----|
+| **3M** | **2.3ms** | 7.1ms | 11.4ms | 1,151ms |
+| **10M** | **4.4ms** | 11.5ms | 15.0ms | 1,975ms |
+| **41M** | **15ms** | 36ms | 43ms | 8,066ms |
+| **126M** | **50ms** | 103ms | 130ms | 17,802ms |
+
+**From disk** (total time including file I/O):
+
+| Rows | Eliza | Cuallee | Pandera | GX |
+|------|-------|---------|---------|-----|
+| **41M** (12 files) | **699ms** | 901ms | 966ms | 9,122ms |
+| **126M** (24 files) | **1.3s** | 4.1s | 4.2s | 48.8s |
+| **259M** (72 files) | **1.9s** | 11.7s | 12.5s | 201s |
+
+<sub>Eliza streams via Polars LazyFrames (constant memory). Competitors load everything into RAM first. GX requires pandas conversion (adds seconds). Reproducible: `python benchmarks/run.py --full`</sub>
 
 ## Eliza vs Competitors
 

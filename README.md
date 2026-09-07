@@ -399,22 +399,92 @@ pip install eliza-dq[report]  # for PDF reports
 </tr>
 </table>
 
-## CI/CD Integration
+## Orchestrator Integration
 
-```yaml
-# .github/workflows/dq.yml
-- run: pip install eliza-dq
-- run: eliza check --config orders --source data/orders.parquet
-```
+### Airflow
 
 ```python
-# Airflow
+from airflow.decorators import task
+
 @task
 def dq_check():
     from eliza import check
+    from eliza.alert import send_slack
+
     result = check(config="orders")
+
+    if not result.passed():
+        send_slack(result, token="xoxb-...", channel="C...", pdf=True, name="orders")
+
+    result.raise_on_fail()  # fails the Airflow task
+    return result.to_dict()  # saved to XCom
+```
+
+### Dagster
+
+```python
+from dagster import asset, asset_check, AssetCheckResult
+
+@asset
+def orders():
+    df = load_orders()
+
+    from eliza import check
+    result = check(df, config="orders")
     result.raise_on_fail()
-    return result.to_dict()
+
+    return df
+
+@asset_check(asset=orders)
+def orders_quality():
+    from eliza import check
+    result = check(config="orders")
+    return AssetCheckResult(
+        passed=result.passed(),
+        metadata={"summary": result.summary(), "failed": result.exit_code},
+    )
+```
+
+### Prefect
+
+```python
+from prefect import flow
+
+@flow
+def dq_flow():
+    from eliza import check
+    from eliza.alert import send_slack
+
+    result = check(config="orders")
+
+    if not result.passed():
+        send_slack(result, webhook="https://hooks.slack.com/services/...")
+
+    result.raise_on_fail()
+```
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/dq.yml
+steps:
+  - run: pip install eliza-dq
+  - run: eliza check --config orders --source data/orders.parquet
+  # exit code 1 on failure = step fails = PR blocked
+```
+
+### Any orchestrator
+
+```python
+from eliza import check
+
+result = check(config="orders")
+
+result.raise_on_fail()   # RuntimeError on failure (Airflow, Dagster, Prefect)
+result.exit_code         # 0=pass, 1=fail, 2=error (bash, CLI, GitHub Actions)
+result.to_dict()         # dict for XCom, metadata, logging
+result.to_json()         # JSON string for APIs
+result.summary()         # "3 passed, 1 failed (1,000,000 rows, 42ms)"
 ```
 
 ## Architecture

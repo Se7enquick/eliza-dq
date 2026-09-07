@@ -4,7 +4,9 @@
 
 **The fastest open-source data quality engine for Python.**
 
-*259M rows. 17 checks. Failed row samples. Under 2 seconds.*
+*Validate warehouse tables and DataFrames at any scale.*
+*Parallel SQL. Single table scan. Failed row samples. Slack alerts. PDF reports.*
+*Fewer queries on your DWH = lower cost.*
 
 [![CI](https://github.com/Se7enquick/eliza-dq/actions/workflows/ci.yml/badge.svg)](https://github.com/Se7enquick/eliza-dq/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/eliza-dq)](https://pypi.org/project/eliza-dq/)

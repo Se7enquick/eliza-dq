@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check src/ tests/
+      - run: ruff format --check src/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[test]"
+      - run: pytest tests/ -v --tb=short
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit safety pip-audit
+      - name: Bandit (code vulnerabilities)
+        run: bandit -r src/eliza/ -c pyproject.toml || bandit -r src/eliza/ -s B101
+      - name: pip-audit (dependency vulnerabilities)
+        run: |
+          pip install -e .
+          pip-audit
+
+  sql-dialect-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: eliza_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[postgres,test]"
+      - name: Seed test data
+        run: |
+          python -c "
+          import psycopg2
+          conn = psycopg2.connect(host='localhost', user='postgres', password='test', dbname='eliza_test')
+          conn.autocommit = True
+          cur = conn.cursor()
+          cur.execute('''CREATE TABLE test_orders (
+              id SERIAL PRIMARY KEY, user_id INT, amount FLOAT,
+              email VARCHAR(100), status VARCHAR(20), created_at TIMESTAMP DEFAULT NOW())''')
+          cur.execute('''INSERT INTO test_orders (user_id, amount, email, status)
+              SELECT (random()*1000)::int,
+                     CASE WHEN random()<0.02 THEN -random()*10 ELSE random()*100 END,
+                     CASE WHEN random()<0.05 THEN NULL ELSE 'user' || (random()*1000)::int || '@test.com' END,
+                     (ARRAY['active','pending','cancelled'])[1 + (random()*2)::int]
+              FROM generate_series(1, 10000)''')
+          conn.close()
+          print('Seeded 10k rows')
+          "
+      - name: Test SQL checks on live Postgres
+        run: |
+          python -c "
+          from eliza.connectors import create_connector
+          from eliza.sql_runner import check_sql
+
+          conn = create_connector({
+              'type': 'postgres', 'host': 'localhost', 'port': 5432,
+              'user': 'postgres', 'password': 'test', 'database': 'eliza_test'})
+
+          checks = [
+              {'column': 'user_id', 'check': 'not_null'},
+              {'column': 'amount', 'check': 'not_null'},
+              {'column': 'amount', 'check': 'not_negative'},
+              {'column': 'email', 'check': 'not_null'},
+              {'column': 'email', 'check': 'regex', 'pattern': r'^[a-zA-Z0-9_.+-]+@'},
+              {'column': 'status', 'check': 'in_set', 'values': ['active','pending','cancelled']},
+              {'column': 'user_id', 'check': 'unique'},
+              {'column': 'id', 'check': 'not_null'},
+          ]
+
+          r = check_sql(conn.execute, checks_list=checks, table='test_orders',
+                        dialect='postgres', samples=True, samples_limit=5)
+          conn.close()
+
+          print(r.summary())
+          for c in r.checks:
+              print(f'  {c.column}:{c.name} = {c.status} ({c.fail_count})')
+              assert c.status != 'error', f'Check {c.column}:{c.name} errored: {c.error}'
+
+          assert r.total_rows == 10000
+          print('All SQL dialect checks passed on Postgres')
+          "

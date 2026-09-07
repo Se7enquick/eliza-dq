@@ -1,0 +1,52 @@
+sample: 1%
+
+defaults:
+  on_failure: fail
+
+schema:
+  cr_pk: string, not_null
+  doi: string
+  title: string
+  cr_pub_year: int
+  publisher: string
+  cr_url: string
+  cr_volume: string
+  cr_issue: string
+  cr_journal_issue: string
+  _loaded_at: datetime
+
+checks:
+  - column: cr_pk
+    check: not_null
+
+  - column: cr_pk
+    check: unique
+
+  - column: doi
+    check: not_null
+    on_failure: warn
+
+  - column: doi
+    check: regex
+    pattern: "^10\\."
+    on_failure: warn
+
+  - column: title
+    check: not_null
+    on_failure: warn
+
+  - column: cr_pub_year
+    check: between
+    min: 1800
+    max: 2027
+
+  - column: cr_url
+    check: is_url
+    on_failure: warn
+
+  - column: publisher
+    check: not_null
+    on_failure: warn
+
+  - column: _loaded_at
+    check: not_null

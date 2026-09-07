@@ -1,0 +1,24 @@
+defaults:
+  on_failure: fail
+
+checks:
+  - column: pk
+    check: not_null
+
+  - column: pk
+    check: unique
+
+  - column: doi
+    check: not_null
+    on_failure: warn
+
+  - column: title
+    check: not_null
+
+  - column: cr_url
+    check: is_url
+    on_failure: warn
+
+  - column: source_partition
+    check: in_set
+    values: ["crossref", "openalex", "semantic_scholar"]

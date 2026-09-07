@@ -1,0 +1,39 @@
+connection:
+  type: athena
+  region: us-east-1
+  schema: nlp_lakehouse
+  s3_staging_dir: s3://nlp-lakehouse/athena-results/eliza/
+  work_group: primary
+
+table: nlp_lakehouse.crossref_silver
+
+checks:
+  - column: cr_pk
+    check: not_null
+
+  - column: doi
+    check: not_null
+    on_failure: warn
+
+  - column: title
+    check: not_null
+    on_failure: warn
+
+  - column: publisher
+    check: not_null
+    on_failure: warn
+
+  - column: cr_pub_year
+    check: not_null
+
+  - column: cr_url
+    check: not_null
+    on_failure: warn
+
+  - column: cr_volume
+    check: not_null
+    on_failure: warn
+
+  - column: cr_issue
+    check: not_null
+    on_failure: warn

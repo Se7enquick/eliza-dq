@@ -1,0 +1,26 @@
+source: orders_sample.parquet
+
+defaults:
+  on_failure: fail
+
+checks:
+  - column: order_id
+    check: not_null
+
+  - column: order_id
+    check: unique
+
+  - column: amount
+    check: gt
+    value: 0
+
+  - column: amount
+    check: not_null
+
+  - column: email
+    check: is_email
+    on_failure: warn
+
+  - column: status
+    check: in_set
+    values: ["pending", "shipped", "delivered", "cancelled"]

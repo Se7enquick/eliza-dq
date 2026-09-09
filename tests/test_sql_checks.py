@@ -34,10 +34,13 @@ class TestSanitizeRegex:
     def test_clean(self):
         assert _sanitize_regex("^test.*$") == "^test.*$"
 
-    def test_strips_dangerous(self):
+    def test_escapes_quotes(self):
         result = _sanitize_regex("test'; DROP TABLE --")
-        assert "'" not in result
-        assert ";" not in result
+        assert "'" not in result or "''" in result
+
+    def test_preserves_backslashes(self):
+        assert r"\d" in _sanitize_regex(r"^\d{3}$")
+        assert r"\." in _sanitize_regex(r"^[a-z]+\.[a-z]+$")
 
 
 class TestInlineChecks:
@@ -199,3 +202,28 @@ class TestSampleFilters:
 
     def test_unknown(self):
         assert get_sample_filter("nonexistent", "c", {}, "bigquery") is None
+
+
+class TestSqlRunnerErrorHandling:
+    def test_failed_aggregation_query_gives_error_status(self):
+        """A failed SQL query must produce status='error', not status='pass'."""
+        from eliza.sql_runner import check_sql
+
+        def failing_executor(sql):
+            raise RuntimeError("syntax error: REGEXP_CONTAINS not supported")
+
+        result = check_sql(
+            failing_executor,
+            checks_list=[
+                {"column": "code", "check": "regex", "pattern": r"^\d{3}$"},
+                {"column": "email", "check": "is_email"},
+            ],
+            table="test_table",
+            dialect="postgres",
+        )
+        assert not result.passed()
+        assert result.exit_code == 2
+        for c in result.checks:
+            assert c.status == "error"
+            assert c.fail_count == 0
+            assert c.error is not None

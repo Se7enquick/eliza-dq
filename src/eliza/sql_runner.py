@@ -112,10 +112,23 @@ def check_sql(
 
     if "aggregation" in query_results:
         agg_row = query_results["aggregation"]
-        if isinstance(agg_row, list) and agg_row:
-            agg_row = agg_row[0]
-        if isinstance(agg_row, dict):
-            total_rows = int(agg_row.get("total_rows", 0))
+        if isinstance(agg_row, dict) and "error" in agg_row:
+            for m in agg_meta:
+                results.append(
+                    CheckResult(
+                        name=m.get("name", m.get("check_name", "unknown")),
+                        column=m.get("column"),
+                        status="error",
+                        fail_count=0,
+                        total_rows=0,
+                        error=agg_row["error"],
+                    )
+                )
+        else:
+            if isinstance(agg_row, list) and agg_row:
+                agg_row = agg_row[0]
+            if isinstance(agg_row, dict):
+                total_rows = int(agg_row.get("total_rows", 0))
             for m in agg_meta:
                 if "error" in m:
                     results.append(

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "eliza-dq"
 version = "0.1.1"
-description = "Fastest open-source data quality engine for Polars, SQL, and any DataFrame"
+description = "Data quality engine for Polars, SQL, and any DataFrame"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

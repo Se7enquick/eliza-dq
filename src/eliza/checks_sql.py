@@ -4,8 +4,6 @@ Supported dialects: bigquery, athena, snowflake, postgres, clickhouse,
                     mysql, databricks, redshift.
 """
 
-import re
-
 
 def _sql_quote(value):
     """Quote a value for SQL, preventing injection."""
@@ -20,8 +18,9 @@ def _sql_quote(value):
 
 
 def _sanitize_regex(pattern):
-    """Strip characters that could break out of a SQL string literal."""
-    return re.sub(r"['\";\\]", "", pattern)
+    """Escape characters that could break out of a SQL string literal.
+    Preserves backslashes (needed for \\d, \\w, etc.) — only escapes quotes."""
+    return pattern.replace("'", "''").replace('"', '\\"')
 
 
 # -- Dialect-specific helpers -----------------------------------------------

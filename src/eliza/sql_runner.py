@@ -127,10 +127,11 @@ def check_sql(
                     )
                 )
         else:
-            if isinstance(agg_row, list) and agg_row:
-                agg_row = agg_row[0]
-            if isinstance(agg_row, dict):
-                total_rows = int(agg_row.get("total_rows", 0))
+            if isinstance(agg_row, list):
+                agg_row = agg_row[0] if agg_row else {}
+            if not isinstance(agg_row, dict):
+                agg_row = {}
+            total_rows = int(agg_row.get("total_rows", 0))
             for m in agg_meta:
                 if "error" in m:
                     results.append(
@@ -202,6 +203,8 @@ def check_sql(
             )
         elif sq["name"] == "row_count":
             count = int(r.get("row_count", 0)) if isinstance(r, dict) else 0
+            if total_rows == 0:
+                total_rows = count
             min_rows = sq["config"].get("min", 0)
             max_rows = sq["config"].get("max", float("inf"))
             failed = count < min_rows or count > max_rows
@@ -212,6 +215,17 @@ def check_sql(
                     status=sq["severity"] if failed else "pass",
                     fail_count=1 if failed else 0,
                     total_rows=count,
+                )
+            )
+        elif sq["name"] == "reference":
+            count = int(r.get("orphan_count", 0)) if isinstance(r, dict) else 0
+            results.append(
+                CheckResult(
+                    name="reference",
+                    column=sq["column"],
+                    status="pass" if count == 0 else sq["severity"],
+                    fail_count=count,
+                    total_rows=total_rows,
                 )
             )
 

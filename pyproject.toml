@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "eliza-dq"
-version = "0.2.0"
+version = "0.2.1"
 description = "Data quality engine for Polars, SQL, and any DataFrame"
 readme = "README.md"
 license = "MIT"
@@ -58,6 +58,7 @@ all = [
 test = [
     "pytest>=8.0",
     "pandas>=2.0",
+    "duckdb>=1.0",
 ]
 dev = [
     "pytest>=8.0",
@@ -94,3 +95,9 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "postgres: requires PostgreSQL service",
+    "mysql: requires MySQL service",
+    "duckdb: requires DuckDB package",
+    "polars: Polars engine integration tests",
+]

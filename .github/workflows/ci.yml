@@ -5,6 +5,18 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      dialect:
+        description: "Which integration tests to run"
+        type: choice
+        default: all
+        options:
+          - all
+          - postgres
+          - mysql
+          - duckdb
+          - polars
 
 jobs:
   lint:
@@ -29,15 +41,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[test]"
-      - run: pytest tests/ -v --tb=short
+      - run: pytest tests/ -v --tb=short --ignore=tests/integration
 
-  sql-dialect-test:
+  integration-postgres:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.dialect == 'all' ||
+      github.event.inputs.dialect == 'postgres'
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16
         env:
-          POSTGRES_PASSWORD: test
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: eliza_test
         ports:
           - 5432:5432
@@ -52,55 +68,71 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[postgres,test]"
-      - name: Seed test data
-        run: |
-          python -c "
-          import psycopg2
-          conn = psycopg2.connect(host='localhost', user='postgres', password='test', dbname='eliza_test')
-          conn.autocommit = True
-          cur = conn.cursor()
-          cur.execute('''CREATE TABLE test_orders (
-              id SERIAL PRIMARY KEY, user_id INT, amount FLOAT,
-              email VARCHAR(100), status VARCHAR(20), created_at TIMESTAMP DEFAULT NOW())''')
-          cur.execute('''INSERT INTO test_orders (user_id, amount, email, status)
-              SELECT (random()*1000)::int,
-                     CASE WHEN random()<0.02 THEN -random()*10 ELSE random()*100 END,
-                     CASE WHEN random()<0.05 THEN NULL ELSE 'user' || (random()*1000)::int || '@test.com' END,
-                     (ARRAY['active','pending','cancelled'])[1 + (random()*2)::int]
-              FROM generate_series(1, 10000)''')
-          conn.close()
-          print('Seeded 10k rows')
-          "
-      - name: Test SQL checks on live Postgres
-        run: |
-          python -c "
-          from eliza.connectors import create_connector
-          from eliza.sql_runner import check_sql
+      - run: pytest tests/integration/test_postgres.py -v --tb=short
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eliza_test
 
-          conn = create_connector({
-              'type': 'postgres', 'host': 'localhost', 'port': 5432,
-              'user': 'postgres', 'password': 'test', 'database': 'eliza_test'})
+  integration-mysql:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.dialect == 'all' ||
+      github.event.inputs.dialect == 'mysql'
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: eliza_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[mysql,test]"
+      - run: pytest tests/integration/test_mysql.py -v --tb=short
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_USER: root
+          MYSQL_PASSWORD: root
+          MYSQL_DATABASE: eliza_test
 
-          checks = [
-              {'column': 'user_id', 'check': 'not_null'},
-              {'column': 'amount', 'check': 'not_null'},
-              {'column': 'amount', 'check': 'not_negative'},
-              {'column': 'email', 'check': 'not_null'},
-              {'column': 'email', 'check': 'regex', 'pattern': r'^[a-zA-Z0-9_.+-]+@'},
-              {'column': 'status', 'check': 'in_set', 'values': ['active','pending','cancelled']},
-              {'column': 'user_id', 'check': 'unique'},
-              {'column': 'id', 'check': 'not_null'},
-          ]
+  integration-duckdb:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.dialect == 'all' ||
+      github.event.inputs.dialect == 'duckdb'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]"
+      - run: pytest tests/integration/test_duckdb.py -v --tb=short
 
-          r = check_sql(conn.execute, checks_list=checks, table='test_orders',
-                        dialect='postgres', samples=True, samples_limit=5)
-          conn.close()
-
-          print(r.summary())
-          for c in r.checks:
-              print(f'  {c.column}:{c.name} = {c.status} ({c.fail_count})')
-              assert c.status != 'error', f'Check {c.column}:{c.name} errored: {c.error}'
-
-          assert r.total_rows == 10000
-          print('All SQL dialect checks passed on Postgres')
-          "
+  integration-polars:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.dialect == 'all' ||
+      github.event.inputs.dialect == 'polars'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]"
+      - run: pytest tests/integration/test_polars.py -v --tb=short

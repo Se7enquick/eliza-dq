@@ -3,6 +3,7 @@
 from eliza.checks_sql import (
     _sanitize_regex,
     _sql_quote,
+    _varchar,
     get_check_expr,
     get_sample_filter,
     get_separate_query,
@@ -41,6 +42,64 @@ class TestSanitizeRegex:
     def test_preserves_backslashes(self):
         assert r"\d" in _sanitize_regex(r"^\d{3}$")
         assert r"\." in _sanitize_regex(r"^[a-z]+\.[a-z]+$")
+
+    def test_doubles_backslashes_mysql(self):
+        result = _sanitize_regex(r"^\d{3}$", "mysql")
+        assert result == r"^\\d{3}$"
+
+    def test_doubles_backslashes_clickhouse(self):
+        result = _sanitize_regex(r"^\d{3}$", "clickhouse")
+        assert result == r"^\\d{3}$"
+
+    def test_postgres_preserves_single_backslash(self):
+        result = _sanitize_regex(r"^\d{3}$", "postgres")
+        assert result == r"^\d{3}$"
+
+
+class TestVarchar:
+    def test_postgres(self):
+        assert _varchar("col", "postgres") == "CAST(col AS VARCHAR)"
+
+    def test_mysql(self):
+        assert _varchar("col", "mysql") == "CAST(col AS CHAR)"
+
+    def test_bigquery(self):
+        assert _varchar("col", "bigquery") == "CAST(col AS STRING)"
+
+    def test_clickhouse(self):
+        assert _varchar("col", "clickhouse") == "CAST(col AS String)"
+
+    def test_databricks(self):
+        assert _varchar("col", "databricks") == "CAST(col AS STRING)"
+
+    def test_redshift(self):
+        assert _varchar("col", "redshift") == "CAST(col AS VARCHAR)"
+
+
+class TestVarcharInChecks:
+    def test_not_missing_mysql(self):
+        expr = get_check_expr("not_missing", "col", {}, "mysql")
+        assert "CAST(col AS CHAR)" in expr
+
+    def test_not_missing_bigquery(self):
+        expr = get_check_expr("not_missing", "col", {}, "bigquery")
+        assert "CAST(col AS STRING)" in expr
+
+    def test_min_length_mysql(self):
+        expr = get_check_expr("min_length", "col", {"min": 3}, "mysql")
+        assert "CAST(col AS CHAR)" in expr
+
+    def test_max_length_mysql(self):
+        expr = get_check_expr("max_length", "col", {"max": 100}, "mysql")
+        assert "CAST(col AS CHAR)" in expr
+
+    def test_min_length_sample_mysql(self):
+        filt = get_sample_filter("min_length", "col", {"min": 3}, "mysql")
+        assert "CAST(col AS CHAR)" in filt
+
+    def test_not_missing_sample_mysql(self):
+        filt = get_sample_filter("not_missing", "col", {}, "mysql")
+        assert "CAST(col AS CHAR)" in filt
 
 
 class TestInlineChecks:

@@ -85,7 +85,7 @@ checks:
 ## Why Eliza
 
 - **You control what gets scanned** - `sample_id` and `sample_columns` let you choose exactly which columns appear in sample queries. On per-byte warehouses (BQ, Athena) this cuts sample costs by up to 92% on wide tables. Soda always runs `SELECT *`
-- **Optimized SQL** - parallel sample collection, `COUNT(CASE...THEN 1 END)` aggregation, `HAVING COUNT(*)` for cross-dialect compatibility. 1.1-2.2x faster than Soda across 10 tested tables without any caching
+- **2x faster on Athena** than Soda Core (parallel samples + 20ms cold start vs 350ms). On BigQuery speed depends on slot scheduling
 - **Handles datasets that crash other tools** - Polars LazyFrame streaming validates 259M rows from disk in 1.9s with constant memory. Pandera and GX OOM
 - **2-3x faster on DataFrames** than Pandera at constant memory
 - **Lightweight** - 2 dependencies (polars + pyyaml) vs 30+ for Soda/GX
@@ -102,9 +102,8 @@ checks:
 
 | Rows | Columns | Eliza | Soda Core |
 |------|---------|-------|-----------|
-| **179M** | 10 | **11.4s** | 20.4s |
-| **236M** | 12 | **13.5s** | 21.4s |
-| **492M** | 20 | **16.2s** | 29.2s |
+| **179M** | 10 | **13.8s** | 27.1s |
+| **492M** | 20 | **18.3s** | 38.4s |
 
 Eliza is 1.6-1.8x faster on Athena. Advantage comes from parallel sample collection and lighter client (~176ms init vs ~350ms). On Athena, each query has fixed overhead (Glue metadata, S3 listing, queue), and parallel execution avoids paying it sequentially.
 
@@ -112,12 +111,11 @@ Eliza is 1.6-1.8x faster on Athena. Advantage comes from parallel sample collect
 
 | Rows | Columns | Eliza | Soda Core | Ratio |
 |------|---------|-------|-----------|-------|
-| **137M** | 28 | **4.5s** | 9.9s | 2.2x |
-| **175M** | 3 | **2.6s** | 4.4s | 1.7x |
-| **227M** | 62 | **2.0s** | 3.8s | 1.9x |
-| **428M** | 21 | **5.8s** | 6.2s | 1.1x |
-| **623M** | 9 | **9.8s** | 11.8s | 1.2x |
-| **1.2B** | 56 | **7.9s** | 10.6s | 1.3x |
+| **137M** | 28 | **6.0s** | 5.5s | 0.9x |
+| **175M** | 14 | **4.0s** | 4.6s | 1.2x |
+| **948M** | 31 | **2.5s** | 2.4s | 1.0x |
+
+<sub>On BigQuery, speed depends heavily on slot scheduling and table caching. Eliza's parallel samples help when multiple checks fail; on clean tables the difference is in noise. On Athena, where each query has fixed overhead (Glue, S3, queue), parallel execution gives a consistent 2x advantage.</sub>
 
 **DWH cost with `sample_id` (BQ on-demand $6.25/TB, Athena $5/TB):**
 
@@ -174,10 +172,11 @@ Competitors need the entire dataset in memory as a DataFrame before running chec
 
 | | Eliza | Soda Core |
 |---|---|---|
-| **Speed (no cache)** | **1.1-2.2x faster** (10 tables, BQ + Athena) | Baseline |
+| **Athena speed** | **2x faster** (parallel samples + 20ms cold start) | Sequential samples, ~350ms cold start |
+| **BQ speed** | Similar (slot scheduling dominates) | Similar |
 | **Cost with `sample_id`** | **Up to 92% cheaper** | Always `SELECT *` for samples |
-| **Cost without `sample_id`** | Same | Same |
-| **Why faster** | Parallel samples + lighter client (2 deps, ~176ms) | Sequential samples, 30+ deps, ~350ms |
+| **Cost default** | Scans checked columns only | `SELECT *` over all columns |
+| **Why cheaper** | You control which columns get scanned. BQ/Athena LIMIT doesn't reduce cost -- price = columns in SELECT | No column control |
 | **Why cheaper** | `SELECT id, col` for samples (you control which columns) | `SELECT *` over all columns, LIMIT doesn't reduce BQ cost |
 | **Failed rows in CLI** | Built-in, always visible | Hidden by default (DefaultSampler discards rows). Visible via LogSampler in Python API |
 | **Failed rows in Slack/PDF** | Built-in | No |

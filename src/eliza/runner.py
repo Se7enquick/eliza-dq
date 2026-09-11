@@ -3,10 +3,6 @@
 import time
 from collections import defaultdict
 
-import polars as pl
-
-from .checks_polars import CHECKS
-from .compat import resolve_source
 from .loader import load_config, parse_inline_checks
 from .result import CheckResult, ElizaResult
 
@@ -107,6 +103,8 @@ def check(
         else:
             query_str = f"SELECT * FROM {table}"
         try:
+            import polars as pl
+
             rows = connector.execute(query_str)
             source = pl.DataFrame(rows)
         finally:
@@ -115,6 +113,11 @@ def check(
 
     if source is None:
         raise ValueError("No source provided and no 'source' in YAML config")
+
+    import polars as pl
+
+    from .checks_polars import CHECKS
+    from .compat import resolve_source
 
     if query is None:
         query = cfg.get("query") if cfg else None

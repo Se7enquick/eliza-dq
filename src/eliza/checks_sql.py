@@ -17,10 +17,25 @@ def _sql_quote(value):
     return f"'{s}'"
 
 
-def _sanitize_regex(pattern):
+def _sanitize_regex(pattern, dialect="bigquery"):
     """Escape characters that could break out of a SQL string literal.
-    Preserves backslashes (needed for \\d, \\w, etc.) — only escapes quotes."""
-    return pattern.replace("'", "''").replace('"', '\\"')
+    Preserves backslashes (needed for \\d, \\w, etc.) — only escapes quotes.
+    MySQL/ClickHouse consume backslashes in string literals, so we double them."""
+    safe = pattern
+    if dialect in ("mysql", "clickhouse"):
+        safe = safe.replace("\\", "\\\\")
+    return safe.replace("'", "''").replace('"', '\\"')
+
+
+def _varchar(col, dialect):
+    """CAST to string type, dialect-aware."""
+    if dialect in ("bigquery", "databricks"):
+        return f"CAST({col} AS STRING)"
+    if dialect == "clickhouse":
+        return f"CAST({col} AS String)"
+    if dialect == "mysql":
+        return f"CAST({col} AS CHAR)"
+    return f"CAST({col} AS VARCHAR)"
 
 
 # -- Dialect-specific helpers -----------------------------------------------
@@ -87,7 +102,7 @@ def get_separate_query(check_name, col, v, table, dialect="bigquery"):
 
 
 def _regex_not_match(col, pattern, dialect):
-    pat = _sanitize_regex(pattern)
+    pat = _sanitize_regex(pattern, dialect)
     fn = _REGEX_FN.get(dialect, _REGEX_FN["bigquery"])
     return fn(col, pat)
 
@@ -110,12 +125,12 @@ _INLINE_CHECKS = {
     "is_url": lambda col, v, d: f"COUNT(CASE WHEN {_regex_not_match(col, _URL_PAT, d)} THEN 1 END)",
     "cross_column": lambda col, v, d: f"COUNT(CASE WHEN {v['column_a']} > {v['column_b']} THEN 1 END)",
     "not_missing": lambda col, v, d: (
-        f"COUNT(CASE WHEN {col} IS NULL OR CAST({col} AS VARCHAR) IN "
+        f"COUNT(CASE WHEN {col} IS NULL OR {_varchar(col, d)} IN "
         f"({','.join(_sql_quote(x) for x in v.get('missing_values', ['', 'NULL', 'null', 'None', 'N/A', 'n/a', 'NA', 'NaN']))}) "
         f"THEN 1 END)"
     ),
-    "min_length": lambda col, v, d: f"COUNT(CASE WHEN LENGTH(CAST({col} AS VARCHAR)) < {v.get('min', 0)} THEN 1 END)",
-    "max_length": lambda col, v, d: f"COUNT(CASE WHEN LENGTH(CAST({col} AS VARCHAR)) > {v.get('max', 255)} THEN 1 END)",
+    "min_length": lambda col, v, d: f"COUNT(CASE WHEN LENGTH({_varchar(col, d)}) < {v.get('min', 0)} THEN 1 END)",
+    "max_length": lambda col, v, d: f"COUNT(CASE WHEN LENGTH({_varchar(col, d)}) > {v.get('max', 255)} THEN 1 END)",
     "custom_sql": lambda col, v, d: v.get("expression", "0"),
 }
 
@@ -130,7 +145,8 @@ _SEPARATE_CHECKS = {
     "row_count": lambda col, v, table, d: f"SELECT COUNT(*) AS row_count FROM {table}",
     "reference": lambda col, v, table, d: (
         f"SELECT COUNT(*) AS orphan_count FROM {table} a "
-        f"LEFT JOIN {v['reference_table']} b ON a.{col} = b.{v.get('reference_column', col)} "
+        f"LEFT JOIN {v.get('reference_table', v.get('reference_source', ''))} b "
+        f"ON a.{col} = b.{v.get('reference_column', col)} "
         f"WHERE b.{v.get('reference_column', col)} IS NULL AND a.{col} IS NOT NULL"
     ),
 }
@@ -160,9 +176,9 @@ _SAMPLE_FILTERS = {
     "is_url": lambda col, v, d: _regex_not_match(col, _URL_PAT, d),
     "cross_column": lambda col, v, d: f"{v['column_a']} > {v['column_b']}",
     "not_missing": lambda col, v, d: (
-        f"({col} IS NULL OR CAST({col} AS VARCHAR) IN "
+        f"({col} IS NULL OR {_varchar(col, d)} IN "
         f"({','.join(_sql_quote(x) for x in v.get('missing_values', ['', 'NULL', 'null', 'None', 'N/A', 'n/a', 'NA', 'NaN']))}))"
     ),
-    "min_length": lambda col, v, d: f"LENGTH(CAST({col} AS VARCHAR)) < {v.get('min', 0)}",
-    "max_length": lambda col, v, d: f"LENGTH(CAST({col} AS VARCHAR)) > {v.get('max', 255)}",
+    "min_length": lambda col, v, d: f"LENGTH({_varchar(col, d)}) < {v.get('min', 0)}",
+    "max_length": lambda col, v, d: f"LENGTH({_varchar(col, d)}) > {v.get('max', 255)}",
 }

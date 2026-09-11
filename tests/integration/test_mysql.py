@@ -57,26 +57,31 @@ SETUP_SQL = [
 
 @pytest.fixture(scope="module")
 def db():
+    import threading
+
     pymysql = pytest.importorskip("pymysql")
+    connect_args = dict(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASS, database=MYSQL_DB)
     try:
-        conn = pymysql.connect(
-            host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASS, database=MYSQL_DB
-        )
+        conn = pymysql.connect(**connect_args)
     except pymysql.OperationalError:
         pytest.skip("MySQL not available")
     cur = conn.cursor()
     for sql in SETUP_SQL:
         cur.execute(sql)
     conn.commit()
+    conn.close()
+
+    _local = threading.local()
 
     def executor(sql):
-        cur2 = conn.cursor()
+        if not hasattr(_local, "conn"):
+            _local.conn = pymysql.connect(**connect_args)
+        cur2 = _local.conn.cursor()
         cur2.execute(sql)
         columns = [desc[0] for desc in cur2.description]
         return [dict(zip(columns, row)) for row in cur2.fetchall()]
 
     yield executor
-    conn.close()
 
 
 @pytest.mark.parametrize(

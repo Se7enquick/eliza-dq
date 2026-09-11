@@ -170,6 +170,7 @@ def test_from_csv():
 
 def test_from_pandas():
     pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
     pdf = TEST_DF.to_pandas()
     result = check(pdf, checks={"name": ["not_null"], "amount": ["not_negative"]})
     assert result.total_rows == 10

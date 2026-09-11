@@ -114,12 +114,12 @@ def main():
 
     # Eliza
     print("Running Eliza...", flush=True)
-    eliza_ms, eliza_result = measure_eliza(
-        args.table, columns, "athena", conn_config, runs=args.runs
-    )
+    eliza_ms, eliza_result = measure_eliza(args.table, columns, "athena", conn_config, runs=args.runs)
     errors = sum(1 for c in eliza_result.checks if c.status == "error")
-    print(f"  Eliza:     {eliza_ms:>8.0f}ms  ({eliza_result.total_rows:,} rows, "
-          f"{len(eliza_result.samples)} samples, {errors} errors)")
+    print(
+        f"  Eliza:     {eliza_ms:>8.0f}ms  ({eliza_result.total_rows:,} rows, "
+        f"{len(eliza_result.samples)} samples, {errors} errors)"
+    )
 
     # Soda
     soda_config = None
@@ -141,9 +141,7 @@ def main():
         soda_config = f.name
 
     print("Running Soda Core...", flush=True)
-    soda_ms, soda_result = measure_soda(
-        args.table, columns, soda_config, runs=args.runs
-    )
+    soda_ms, soda_result = measure_soda(args.table, columns, soda_config, runs=args.runs)
     os.unlink(soda_config)
 
     if soda_ms:

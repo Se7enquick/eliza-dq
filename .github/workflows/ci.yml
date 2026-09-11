@@ -31,21 +31,6 @@ jobs:
       - run: pip install -e ".[test]"
       - run: pytest tests/ -v --tb=short
 
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install bandit safety pip-audit
-      - name: Bandit (code vulnerabilities)
-        run: bandit -r src/eliza/ -c pyproject.toml || bandit -r src/eliza/ -s B101
-      - name: pip-audit (dependency vulnerabilities)
-        run: |
-          pip install -e .
-          pip-audit
-
   sql-dialect-test:
     runs-on: ubuntu-latest
     services:

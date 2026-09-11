@@ -168,21 +168,23 @@ Competitors need the entire dataset in memory as a DataFrame before running chec
 | **126M** (24 files) | **528ms** | ~860 MB | 3.8 GB (4 cols) |
 | **259M** (72 files) | **1.1s** | ~820 MB | 7.6+ GB |
 
-> Eliza's peak RAM stays under 1 GB regardless of dataset size -- data streams through in chunks via Polars LazyFrames. Competitors must load all files into a single DataFrame first. At 259M rows with all columns that's 7.6+ GB, enough to OOM an 8 GB Lambda or CI runner. Streaming is a feature of Polars; Eliza's value is that 17 checks, fail counts, sample rows, and reports come on top of it.
+> Eliza's peak RAM stays under 1 GB at all tested scales -- data streams through in chunks via Polars LazyFrames. Competitors must load all files into a single DataFrame first. At 259M rows with all columns that's 7.6+ GB, enough to OOM an 8 GB Lambda or CI runner. Streaming is a feature of Polars; Eliza's value is that 17 checks, fail counts, sample rows, and reports come on top of it. Reproducible: `python benchmarks/dataframe.py --full`
 
 ## Eliza vs Soda Core
 
 | | Eliza | Soda Core |
 |---|---|---|
 | **Speed (no cache)** | **1.1-2.2x faster** (10 tables, BQ + Athena) | Baseline |
-| **Cost with `sample_id`** | **Up to 92% cheaper** | Always `SELECT *` |
+| **Cost with `sample_id`** | **Up to 92% cheaper** | Always `SELECT *` for samples |
 | **Cost without `sample_id`** | Same | Same |
-| **Why faster** | Parallel samples + optimized aggregation + lighter client (2 deps, ~176ms) | Sequential samples, 30+ deps, ~350ms init |
-| **Why cheaper** | You choose: `sample_id`, `sample_columns`, `samples_limit` | No control over sample queries |
-| **DataFrames** | Polars streaming, 259M in 1.9s, constant memory | No DataFrame support |
-| **PDF reports** | Built-in | No |
-| **Slack alerts** | Built-in | Built-in |
+| **Why faster** | Parallel samples + lighter client (2 deps, ~176ms) | Sequential samples, 30+ deps, ~350ms |
+| **Why cheaper** | `SELECT id, col` for samples (you control which columns) | `SELECT *` over all columns, LIMIT doesn't reduce BQ cost |
+| **Failed rows in CLI** | Built-in, always visible | Hidden by default (DefaultSampler discards rows). Visible via LogSampler in Python API |
+| **Failed rows in Slack/PDF** | Built-in | No |
+| **DataFrames** | Polars streaming, 259M in 1.9s | No |
 | **Check batching** | Single SELECT | Single SELECT |
+
+<sub>Soda runs `SELECT *` for samples and by default discards the rows (DefaultSampler). To see them, you need `scan.sampler = LogSampler()` in Python -- not available from CLI or YAML. Even with LogSampler, it's still `SELECT *` over all columns. The sample limit is configurable in both tools (Soda default 100, Eliza default 10), but on BigQuery and Athena LIMIT doesn't reduce cost -- price is determined by columns in SELECT, not rows returned. One `SELECT *` sample query on a 56-column table costs the same as a full scan. Eliza by default selects only the checked columns, and with `sample_id` narrows further to ID + failing column.</sub>
 
 ## Features
 

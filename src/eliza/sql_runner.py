@@ -239,7 +239,8 @@ def check_sql(
                             cols.append(r.column)
                         sample_col_sql = ", ".join(cols)
                     else:
-                        sample_col_sql = "*"
+                        all_checked = list(dict.fromkeys(c.get("column") for c in checks_list if c.get("column")))
+                        sample_col_sql = ", ".join(all_checked) if all_checked else "*"
                     sample_queries[f"{r.column}:{r.name}"] = (
                         f"SELECT {sample_col_sql} FROM {table} WHERE {filt} LIMIT {samples_limit}"
                     )

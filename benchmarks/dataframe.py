@@ -20,20 +20,24 @@ import urllib.request
 
 import polars as pl
 
-PARQUET_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-{month:02d}.parquet"
+PARQUET_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
-def download(months):
+def download(year_months):
     os.makedirs(DATA_DIR, exist_ok=True)
     paths = []
-    for m in months:
-        path = os.path.join(DATA_DIR, f"yellow_tripdata_2024-{m:02d}.parquet")
+    for year, month in year_months:
+        path = os.path.join(DATA_DIR, f"yellow_tripdata_{year}-{month:02d}.parquet")
         if not os.path.exists(path):
-            url = PARQUET_URL.format(month=m)
-            print(f"  Downloading 2024-{m:02d}...", end=" ", flush=True)
-            urllib.request.urlretrieve(url, path)
-            print("done")
+            url = PARQUET_URL.format(year=year, month=month)
+            print(f"  Downloading {year}-{month:02d}...", end=" ", flush=True)
+            try:
+                urllib.request.urlretrieve(url, path)
+                print("done")
+            except Exception:
+                print("skip")
+                continue
         paths.append(path)
     return paths
 
@@ -58,22 +62,30 @@ def measure(fn, runs=3):
 
 def run_eliza(df):
     from eliza import check
-    return check(df, checks={
-        "fare_amount": ["not_null", "not_negative"],
-        "total_amount": ["not_negative"],
-        "tip_amount": ["not_negative"],
-        "trip_distance": ["not_negative"],
-    }, samples=False)
+
+    return check(
+        df,
+        checks={
+            "fare_amount": ["not_null", "not_negative"],
+            "total_amount": ["not_negative"],
+            "tip_amount": ["not_negative"],
+            "trip_distance": ["not_negative"],
+        },
+        samples=False,
+    )
 
 
 def run_pandera(df):
     import pandera.polars as pa
-    schema = pa.DataFrameSchema({
-        "fare_amount": pa.Column(nullable=False, checks=[pa.Check.ge(0)]),
-        "total_amount": pa.Column(checks=[pa.Check.ge(0)]),
-        "tip_amount": pa.Column(checks=[pa.Check.ge(0)]),
-        "trip_distance": pa.Column(checks=[pa.Check.ge(0)]),
-    })
+
+    schema = pa.DataFrameSchema(
+        {
+            "fare_amount": pa.Column(nullable=False, checks=[pa.Check.ge(0)]),
+            "total_amount": pa.Column(checks=[pa.Check.ge(0)]),
+            "tip_amount": pa.Column(checks=[pa.Check.ge(0)]),
+            "trip_distance": pa.Column(checks=[pa.Check.ge(0)]),
+        }
+    )
     try:
         return schema.validate(df)
     except Exception:
@@ -97,13 +109,12 @@ def run_dataframely(df):
 
 def run_gx(pdf):
     import great_expectations as gx
+
     n = f"t{int(time.time() * 1000)}"
     context = gx.get_context()
     ds = context.data_sources.add_pandas(n)
     da = ds.add_dataframe_asset(f"{n}_d")
-    batch = da.add_batch_definition_whole_dataframe(f"{n}_b").get_batch(
-        batch_parameters={"dataframe": pdf}
-    )
+    batch = da.add_batch_definition_whole_dataframe(f"{n}_b").get_batch(batch_parameters={"dataframe": pdf})
     suite = gx.ExpectationSuite(name=f"{n}_s")
     suite.add_expectation(gx.expectations.ExpectColumnValuesToNotBeNull(column="fare_amount"))
     suite.add_expectation(gx.expectations.ExpectColumnValuesToBeBetween(column="fare_amount", min_value=0))
@@ -115,13 +126,20 @@ def run_gx(pdf):
 
 def run_eliza_files(files):
     from eliza import check
-    return check(files, checks={
-        "fare_amount": ["not_null", "not_negative"],
-        "total_amount": ["not_negative"],
-        "tip_amount": ["not_negative"],
-        "trip_distance": ["not_negative"],
-    }, samples=True, samples_limit=10,
-    extra_columns="ignore", missing_columns="insert")
+
+    return check(
+        files,
+        checks={
+            "fare_amount": ["not_null", "not_negative"],
+            "total_amount": ["not_negative"],
+            "tip_amount": ["not_negative"],
+            "trip_distance": ["not_negative"],
+        },
+        samples=True,
+        samples_limit=10,
+        extra_columns="ignore",
+        missing_columns="insert",
+    )
 
 
 def try_import(name):
@@ -152,9 +170,14 @@ def main():
     print(f"Libraries: eliza=yes, pandera={has_pandera}, dataframely={has_dfly}, gx={has_gx}")
     print()
 
-    months = list(range(1, 13)) if args.full else [1, 2, 3]
-    print(f"Downloading NYC Yellow Taxi 2024 ({len(months)} months)...")
-    paths = download(months)
+    if args.full:
+        year_months = [(2024, m) for m in range(1, 13)]
+        for y in range(2019, 2024):
+            year_months += [(y, m) for m in range(1, 13)]
+    else:
+        year_months = [(2024, m) for m in range(1, 4)]
+    print(f"Downloading NYC Yellow Taxi ({len(year_months)} files)...")
+    paths = download(year_months)
 
     # -- In-memory --
     print()
@@ -175,11 +198,12 @@ def main():
     print(header)
     print("-" * len(header))
 
-    scales = [("3M", [paths[0]])]
-    if len(paths) >= 3:
-        scales.append(("10M", paths[:3]))
-    if len(paths) >= 12:
-        scales.append(("41M", paths))
+    paths_2024 = [p for p in paths if "2024" in p]
+    scales = [("3M", paths_2024[:1])]
+    if len(paths_2024) >= 3:
+        scales.append(("10M", paths_2024[:3]))
+    if len(paths_2024) >= 12:
+        scales.append(("41M", paths_2024))
 
     for label, files in scales:
         dfs = [
@@ -230,39 +254,45 @@ def main():
         print(header)
         print("-" * len(header))
 
-        stream_scales = [("3 files", paths[:3])]
-        if len(paths) >= 12:
-            stream_scales.append(("12 files", paths))
+        stream_scales = [("3 files", paths_2024[:3])]
+        if len(paths_2024) >= 12:
+            stream_scales.append(("12 files (41M)", paths_2024))
+        if len(paths) >= 24:
+            stream_scales.append(("24 files (126M)", paths[:24]))
+        if len(paths) >= 60:
+            stream_scales.append(("72 files (259M)", paths))
 
         for label, files in stream_scales:
             parts = [f"{label:>12} | {fmt(measure(lambda: run_eliza_files(files))):>12}"]
 
             if has_pandera:
+
                 def pandera_from_files():
                     dfs = [
                         pl.read_parquet(f).cast(
-                            {"tpep_pickup_datetime": pl.Datetime("us"),
-                             "tpep_dropoff_datetime": pl.Datetime("us")},
+                            {"tpep_pickup_datetime": pl.Datetime("us"), "tpep_dropoff_datetime": pl.Datetime("us")},
                             strict=False,
                         )
                         for f in files
                     ]
                     df = pl.concat(dfs, how="diagonal_relaxed")
                     run_pandera(df)
+
                 parts.append(f"{fmt(measure(pandera_from_files)):>12}")
 
             if has_dfly:
+
                 def dfly_from_files():
                     dfs = [
                         pl.read_parquet(f).cast(
-                            {"tpep_pickup_datetime": pl.Datetime("us"),
-                             "tpep_dropoff_datetime": pl.Datetime("us")},
+                            {"tpep_pickup_datetime": pl.Datetime("us"), "tpep_dropoff_datetime": pl.Datetime("us")},
                             strict=False,
                         )
                         for f in files
                     ]
                     df = pl.concat(dfs, how="diagonal_relaxed")
                     run_dataframely(df)
+
                 parts.append(f"{fmt(measure(dfly_from_files)):>12}")
 
             print(" | ".join(parts))
